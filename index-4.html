@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+<meta charset="UTF-8">
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop Video Maker</title>
+<style>
+  :root{
+    --bg:#f2f4f7; --card:#ffffff; --ink:#14202b; --muted:#5d6b79;
+    --line:#d8dee5; --accent:#0b6e4f; --accent-ink:#ffffff; --warn:#b3261e;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#10161c; --card:#18212a; --ink:#e8eef3; --muted:#9aa8b5; --line:#2a3642; --accent:#3ecf9a; --accent-ink:#06261a; --warn:#ff8a80; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{max-width:860px;margin:0 auto;padding:20px 14px 60px}
+  h1{font-size:1.5rem;margin:8px 0 4px}
+  p.sub{margin:0 0 18px;color:var(--muted)}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+  button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:9px 14px;border-radius:8px;cursor:pointer}
+  button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  .row{display:grid;grid-template-columns:84px 1fr;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px}
+  .thumb{width:84px;height:84px;border-radius:6px;background:var(--bg);border:1px dashed var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;color:var(--muted);font-size:.8rem;text-align:center}
+  .thumb img{width:100%;height:100%;object-fit:cover}
+  .fields{display:flex;flex-direction:column;gap:8px;min-width:0}
+  .line{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .file{flex:1;min-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:.9rem}
+  .mult{display:flex;flex-wrap:wrap;gap:6px}
+  .mult label{display:inline-block}
+  .mult input{position:absolute;opacity:0;width:0;height:0}
+  .mult span{display:inline-block;padding:6px 12px;border:1px solid var(--line);border-radius:6px;cursor:pointer;font-weight:600}
+  .mult input:checked + span{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .mult input:focus-visible + span{outline:3px solid var(--accent);outline-offset:2px}
+  .info{font-weight:600;font-size:.95rem}
+  .status{font-size:.9rem;color:var(--muted);word-break:break-word}
+  .status.err{color:var(--warn)}
+  progress{width:100%;height:8px}
+  a.dl{display:inline-block;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:600;padding:8px 14px;border-radius:8px}
+  .remove{margin-left:auto;padding:4px 10px}
+  .opts{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:16px;font-size:.92rem}
+  select{font:inherit;padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+  #load{color:var(--muted);margin-bottom:6px;font-size:.9rem;word-break:break-word}
+  #sum{font-weight:600;margin-bottom:10px}
+</style>
+</head>
+<body>
+<main>
+  <h1>Image + Music Loop Video</h1>
+  <p class="sub">Aik image aur gana lagayein, &times;2 / &times;3 / &times;5 / &times;10 chunein, MP4 download karein. Sab kuch aap ke browser mein hota hai, kuch upload nahi hota.</p>
+
+  <div class="opts">
+    <label>Effect
+      <select id="fx">
+        <option value="on">Image hilti hui + dhuan</option>
+        <option value="off">Sirf image (sab se tez)</option>
+      </select>
+    </label>
+    <label>Audio
+      <select id="q">
+        <option value="128k">Chhoti file (128k)</option>
+        <option value="192k">Behtar (192k)</option>
+      </select>
+    </label>
+    <label>Size
+      <select id="size">
+        <option value="854">480p</option>
+        <option value="1280">720p</option>
+        <option value="1920">1080p</option>
+      </select>
+    </label>
+    <label>Ek saath
+      <select id="par">
+        <option value="1">1 video</option>
+        <option value="2">2 videos</option>
+        <option value="3">3 videos</option>
+        <option value="4">4 videos</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="bar">
+    <button id="add">+ Naya video add karein</button>
+    <button id="add5">+ 5 add karein</button>
+    <button id="go" class="primary">Sab banayein</button>
+    <button id="all" disabled>Sab download karein</button>
+  </div>
+  <div id="load">Engine load ho raha hai...</div>
+  <div id="sum"></div>
+  <div id="list"></div>
+</main>
+
+<script>
+const MAX_ROWS = 15;
+const list = document.getElementById('list');
+const loadEl = document.getElementById('load');
+const sumEl = document.getElementById('sum');
+let ffmpeg = null, ready = false, busy = false, ctx = null;
+const engines = [];
+const rows = [];
+
+// ---------- helpers ----------
+function esc(s){ return s.replace(/[^\w.\-]+/g,'_'); }
+function fmt(sec){
+  sec = Math.round(sec);
+  const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+  const p = x=>String(x).padStart(2,'0');
+  return h>0 ? `${h}:${p(m)}:${p(s)}` : `${m}:${p(s)}`;
+}
+function audioDuration(file){
+  return new Promise(res=>{
+    const a = new Audio(); const u = URL.createObjectURL(file); a.preload = 'metadata';
+    a.onloadedmetadata = ()=>{ const d = a.duration; URL.revokeObjectURL(u); res(isFinite(d)&&d>0 ? d : 0); };
+    a.onerror = ()=>{ URL.revokeObjectURL(u); res(0); };
+    a.src = u;
+  });
+}
+
+// ---------- ffmpeg commands (alag function taake test ho sake) ----------
+function buildCmds(o){
+  // o: {iname, aname, w, h, abr, n, fx}
+  const w = o.w, h = o.h, n = o.n;
+  let clip;
+  if(o.fx){
+    const FPS = 12, L = 8;
+    const iw = Math.floor(w*0.94/2)*2, ih = Math.floor(h*0.94/2)*2;
+    const fc =
+      `color=c=black:s=${w}x${h}:r=${FPS}:d=${L}[bg];` +
+      `[0:v]scale=${iw}:${ih}:force_original_aspect_ratio=decrease,setsar=1[im];` +
+      `[bg][im]overlay=x='(W-w)/2*(1+0.8*sin(2*PI*t/${L}))':y='(H-h)/2*(1+0.8*sin(4*PI*t/${L}))':shortest=1[base];` +
+      `color=c=gray:s=160x90:r=${FPS}:d=${L},noise=alls=100:all_seed=7:allf=u,format=gray,split[s1][s2];` +
+      `[s1][s2]vstack,gblur=sigma=6,eq=contrast=6:brightness=-0.15,crop=160:90:0:'t/${L}*90',scale=${w}:${h},format=yuv420p[sm];` +
+      `[base]format=yuv420p[b2];[b2][sm]blend=c0_mode=screen:c0_opacity=0.4,format=yuv420p[v]`;
+    clip = ['-loop','1','-framerate',String(FPS),'-t',String(L),'-i',o.iname,
+            '-filter_complex',fc,'-map','[v]',
+            '-c:v','libx264','-preset','ultrafast','-crf','30','-r',String(FPS),'-g',String(FPS),'-bf','0','-pix_fmt','yuv420p','clip.mp4'];
+  }else{
+    clip = ['-loop','1','-framerate','1','-t','2','-i',o.iname,
+            '-vf',`scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2,setsar=1,format=yuv420p`,
+            '-c:v','libx264','-preset','ultrafast','-crf','32','-r','1','-g','1','-bf','0','clip.mp4'];
+  }
+  const aud = ['-i',o.aname,'-vn','-c:a','aac','-b:a',o.abr,'-ac','2','a.m4a'];
+  const mux = ['-stream_loop','-1','-i','clip.mp4','-stream_loop',String(n-1),'-i','a.m4a',
+               '-map','0:v:0','-map','1:a:0','-c','copy','-shortest','-movflags','+faststart','out.mp4'];
+  return { clip, aud, mux };
+}
+
+// ---------- rows ----------
+function addRow(){
+  if(rows.length >= MAX_ROWS){ alert('Aik waqt mein zyada se zyada '+MAX_ROWS+' videos.'); return; }
+  const id = 'r'+Date.now()+Math.random().toString(36).slice(2,6);
+  const el = document.createElement('div');
+  el.className = 'row';
+  el.innerHTML = `
+    <div class="thumb" tabindex="0" role="button" aria-label="Image chunein">Image<br>chunein</div>
+    <div class="fields">
+      <div class="line">
+        <button class="pickAudio">Gana chunein</button>
+        <span class="file">Koi gana nahi</span>
+        <button class="remove" aria-label="Hatayein">&#10005;</button>
+      </div>
+      <div class="line mult" role="radiogroup" aria-label="Kitni dafa chale">
+        ${[1,2,3,5,10].map(n=>`<label><input type="radio" name="${id}" value="${n}" ${n===2?'checked':''}><span>&times;${n}</span></label>`).join('')}
+      </div>
+      <div class="info"></div>
+      <progress value="0" max="100" hidden></progress>
+      <div class="line"><span class="status">Tayyar</span></div>
+    </div>
+    <input type="file" accept="image/*" hidden class="fi">
+    <input type="file" accept="audio/*,video/mp4" hidden class="fa">`;
+  const r = {id, el, img:null, aud:null, dur:0, out:null, url:null};
+  const thumb = el.querySelector('.thumb'), fi = el.querySelector('.fi'), fa = el.querySelector('.fa');
+  r.setStatus = (t,err)=>{ const s = el.querySelector('.status'); s.textContent = t; s.className = 'status'+(err?' err':''); };
+  r.setProg = v=>{ const p = el.querySelector('progress'); p.hidden = v==null; if(v!=null) p.value = v; };
+  r.mult = ()=> +el.querySelector('input[type=radio]:checked').value;
+  r.resetOut = ()=>{
+    if(!r.out) return;
+    r.out = null; if(r.url){ URL.revokeObjectURL(r.url); r.url = null; }
+    const a = el.querySelector('a.dl'); if(a) a.remove();
+    r.setStatus('Tayyar'); updateAll();
+  };
+  r.updateInfo = ()=>{
+    const i = el.querySelector('.info');
+    if(r.dur>0){ const n = r.mult(); i.textContent = `Gana ${fmt(r.dur)} × ${n} = Video ${fmt(r.dur*n)}`; }
+    else i.textContent = '';
+    updateSummary();
+  };
+  thumb.onclick = ()=>fi.click();
+  thumb.onkeydown = e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); fi.click(); } };
+  el.querySelector('.pickAudio').onclick = ()=>fa.click();
+  fi.onchange = ()=>{
+    if(fi.files[0]){ r.img = fi.files[0]; thumb.innerHTML = ''; const im = new Image(); im.src = URL.createObjectURL(r.img); im.alt = ''; thumb.appendChild(im); r.resetOut(); }
+  };
+  fa.onchange = async ()=>{
+    if(fa.files[0]){
+      r.aud = fa.files[0]; el.querySelector('.file').textContent = r.aud.name; r.resetOut();
+      r.dur = await audioDuration(r.aud); r.updateInfo();
+    }
+  };
+  el.querySelectorAll('input[type=radio]').forEach(x=>x.onchange = ()=>{ r.resetOut(); r.updateInfo(); });
+  el.querySelector('.remove').onclick = ()=>{
+    if(busy) return;
+    rows.splice(rows.indexOf(r),1); if(r.url) URL.revokeObjectURL(r.url); el.remove(); updateAll(); updateSummary();
+  };
+  rows.push(r); list.appendChild(el);
+}
+
+function updateAll(){ document.getElementById('all').disabled = !rows.some(r=>r.out); }
+function updateSummary(){
+  const withAudio = rows.filter(r=>r.dur>0);
+  if(!withAudio.length){ sumEl.textContent = ''; return; }
+  const total = withAudio.reduce((s,r)=>s + r.dur*r.mult(), 0);
+  sumEl.textContent = `Total: ${withAudio.length} videos, kul lambai ${fmt(total)}`;
+}
+
+// ---------- engine ----------
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    const s = document.createElement('script'); s.src = src; s.onload = res;
+    s.onerror = ()=>rej(new Error('Script load nahi hui: '+src)); document.head.appendChild(s);
+  });
+}
+const CDNS = [
+  { name:'jsDelivr', ff:'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd', ut:'https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd', core:'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd' },
+  { name:'unpkg',    ff:'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd',          ut:'https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd',          core:'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd' }
+];
+
+const urlCache = {};
+async function getUrls(c, mode){
+  const key = c.name+'|'+mode;
+  if(urlCache[key]) return urlCache[key];
+  const { toBlobURL } = FFmpegUtil;
+  const coreDir = mode==='esm' ? c.core.replace('/umd','/esm') : c.core;
+  const u = {
+    coreURL: await toBlobURL(`${coreDir}/ffmpeg-core.js`,'text/javascript'),
+    wasmURL: await toBlobURL(`${coreDir}/ffmpeg-core.wasm`,'application/wasm'),
+    workerURL: mode==='plain' ? null : await toBlobURL(`${c.ff}/814.ffmpeg.js`,'text/javascript')
+  };
+  urlCache[key] = u; return u;
+}
+
+async function newEngine(c, mode){
+  const { FFmpeg } = window.FFmpegWASM || window.FFmpegWasm;
+  const u = await getUrls(c, mode);
+  const f = new FFmpeg();
+  const eng = { f, tail:[], cur:null, range:[0,100] };
+  f.on('log', ({message})=>{ eng.tail.push(message); if(eng.tail.length>8) eng.tail.shift(); });
+  f.on('progress', ({progress})=>{
+    if(!eng.cur) return;
+    const p = Math.max(0, Math.min(1, progress));
+    eng.cur.setProg(Math.round(eng.range[0] + p*(eng.range[1]-eng.range[0])));
+  });
+  try{
+    if(u.workerURL) await f.load({ classWorkerURL:u.workerURL, coreURL:u.coreURL, wasmURL:u.wasmURL });
+    else await f.load({ coreURL:u.coreURL, wasmURL:u.wasmURL });
+  }catch(e){ try{ f.terminate(); }catch(_){} throw e; }
+  return eng;
+}
+
+async function initEngine(){
+  const errs = [];
+  for(const c of CDNS){
+    try{
+      loadEl.textContent = 'Engine load ho raha hai ('+c.name+')... pehli dafa 30 MB download hota hai.';
+      if(!window.FFmpegWASM) await loadScript(c.ff+'/ffmpeg.js');
+      if(!window.FFmpegUtil) await loadScript(c.ut+'/index.js');
+    }catch(e){ errs.push(c.name+' script: '+e.message); continue; }
+    for(const mode of ['umd','esm','plain']){
+      try{
+        loadEl.textContent = 'Engine load ho raha hai ('+c.name+', tareeqa '+mode+')...';
+        const eng = await newEngine(c, mode);
+        engines.push(eng); ctx = {c, mode}; ready = true;
+        loadEl.style.color = ''; loadEl.textContent = 'Engine tayyar hai.';
+        return;
+      }catch(e){
+        console.error(e); errs.push(c.name+'/'+mode+': '+(e && e.message ? e.message : e));
+      }
+    }
+    break;
+  }
+  loadEl.style.color = 'var(--warn)';
+  loadEl.textContent = 'Engine load nahi hua. ' + errs.join(' || ');
+}
+
+async function ensureEngines(n){
+  while(engines.length < n){
+    try{ loadEl.textContent = 'Extra engine ban raha hai ('+(engines.length+1)+'/'+n+')...'; engines.push(await newEngine(ctx.c, ctx.mode)); }
+    catch(e){ console.error(e); break; }
+  }
+  loadEl.textContent = 'Engine tayyar hai ('+Math.min(engines.length,n)+' ek saath).';
+}
+
+// ---------- video banana ----------
+async function makeOne(r, eng){
+  const f = eng.f, {fetchFile} = FFmpegUtil;
+  const w = +document.getElementById('size').value;
+  const h = Math.round(w*9/16/2)*2;
+  const abr = document.getElementById('q').value;
+  const fx = document.getElementById('fx').value === 'on';
+  const n = r.mult();
+  const iname = 'in_'+esc(r.img.name), aname = 'au_'+esc(r.aud.name);
+  eng.cur = r; eng.tail.length = 0;
+  r.setProg(0);
+  const del = async names=>{ for(const x of names){ try{ await f.deleteFile(x); }catch(_){} } };
+  await del([iname, aname, 'clip.mp4', 'a.m4a', 'out.mp4']);
+  await f.writeFile(iname, await fetchFile(r.img));
+  await f.writeFile(aname, await fetchFile(r.aud));
+  const cmds = buildCmds({ iname, aname, w, h, abr, n, fx });
+
+  const steps = [
+    ['Image/effect bana raha hai (1/3)', cmds.clip, [0,40]],
+    ['Gana encode ho raha hai (2/3)',   cmds.aud,  [40,90]],
+    ['Video jod raha hai (3/3)',        cmds.mux,  [90,100]]
+  ];
+  for(const [label, args, range] of steps){
+    r.setStatus(label); eng.range = range; r.setProg(range[0]);
+    const code = await f.exec(args);
+    if(code !== 0) throw new Error(label+' fail, code '+code);
+  }
+  const data = await f.readFile('out.mp4');
+  const blob = new Blob([data.buffer], {type:'video/mp4'});
+  await del([iname, aname, 'clip.mp4', 'a.m4a', 'out.mp4']);
+
+  if(r.url) URL.revokeObjectURL(r.url);
+  r.out = blob; r.url = URL.createObjectURL(blob);
+  r.fname = esc((r.aud.name.replace(/\.[^.]+$/,'') || 'video')) + `_x${n}.mp4`;
+  const mb = (blob.size/1048576).toFixed(1);
+  const st = r.el.querySelector('.status');
+  st.className = 'status'; st.textContent = `Tayyar (${mb} MB) `;
+  const a = document.createElement('a'); a.className = 'dl'; a.href = r.url; a.download = r.fname; a.textContent = 'Download';
+  st.after(a);
+  r.setProg(null);
+}
+
+async function runAll(){
+  if(busy) return;
+  if(!ready){ alert('Engine abhi load ho raha hai, thora intezar karein.'); return; }
+  const todo = rows.filter(r=>!r.out);
+  for(const r of todo){ if(!r.img || !r.aud){ r.setStatus('Image aur gana dono chunein.', true); } }
+  const queue = todo.filter(r=>r.img && r.aud);
+  if(!queue.length) return;
+  busy = true; document.getElementById('go').disabled = true;
+  const want = Math.min(+document.getElementById('par').value, queue.length);
+  await ensureEngines(want);
+  const pool = engines.slice(0, want);
+  const t0 = Date.now();
+  await Promise.all(pool.map(async eng=>{
+    while(queue.length){
+      const r = queue.shift();
+      try{ await makeOne(r, eng); }
+      catch(e){
+        console.error(e);
+        r.setStatus('Nakam: '+(e&&e.message?e.message:e)+' | '+eng.tail.slice(-3).join(' / '), true); r.setProg(null);
+      }
+      eng.cur = null; updateAll();
+    }
+  }));
+  loadEl.textContent = 'Khatam. Kul waqt: '+fmt((Date.now()-t0)/1000);
+  busy = false; document.getElementById('go').disabled = false;
+}
+
+function downloadAll(){
+  const done = rows.filter(r=>r.out);
+  done.forEach((r,i)=>setTimeout(()=>{ const a = document.createElement('a'); a.href = r.url; a.download = r.fname; document.body.appendChild(a); a.click(); a.remove(); }, i*500));
+}
+
+document.getElementById('add').onclick = addRow;
+document.getElementById('add5').onclick = ()=>{ for(let i=0;i<5;i++) addRow(); };
+document.getElementById('go').onclick = runAll;
+document.getElementById('all').onclick = downloadAll;
+document.getElementById('par').value = String((navigator.hardwareConcurrency||4) <= 4 ? 2 : 3);
+addRow();
+initEngine();
+</script>
+</body>
+</html>
