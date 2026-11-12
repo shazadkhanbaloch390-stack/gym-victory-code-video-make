@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en" translate="no">
+<head>
+<meta charset="UTF-8">
+<meta name="google" content="notranslate">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Loop Video Maker</title>
+<style>
+  :root{
+    --bg:#f2f4f7; --card:#ffffff; --ink:#14202b; --muted:#5d6b79;
+    --line:#d8dee5; --accent:#0b6e4f; --accent-ink:#ffffff; --warn:#b3261e;
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --bg:#10161c; --card:#18212a; --ink:#e8eef3; --muted:#9aa8b5; --line:#2a3642; --accent:#3ecf9a; --accent-ink:#06261a; --warn:#ff8a80; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{max-width:860px;margin:0 auto;padding:20px 14px 60px}
+  h1{font-size:1.5rem;margin:8px 0 4px}
+  p.sub{margin:0 0 18px;color:var(--muted)}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:16px}
+  button{font:inherit;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:9px 14px;border-radius:8px;cursor:pointer}
+  button.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  button:focus-visible,select:focus-visible,input:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  .row{display:grid;grid-template-columns:84px 1fr;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:10px}
+  .thumb{width:84px;height:84px;border-radius:6px;background:var(--bg);border:1px dashed var(--line);display:flex;align-items:center;justify-content:center;overflow:hidden;cursor:pointer;color:var(--muted);font-size:.8rem;text-align:center}
+  .thumb img{width:100%;height:100%;object-fit:cover}
+  .fields{display:flex;flex-direction:column;gap:8px;min-width:0}
+  .line{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .file{flex:1;min-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted);font-size:.9rem}
+  .mult{display:flex;gap:6px}
+  .mult label{display:inline-block}
+  .mult input{position:absolute;opacity:0;width:0;height:0}
+  .mult span{display:inline-block;padding:6px 12px;border:1px solid var(--line);border-radius:6px;cursor:pointer;font-weight:600}
+  .mult input:checked + span{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .mult input:focus-visible + span{outline:3px solid var(--accent);outline-offset:2px}
+  .status{font-size:.9rem;color:var(--muted)}
+  .status.err{color:var(--warn)}
+  progress{width:100%;height:8px}
+  a.dl{display:inline-block;background:var(--accent);color:var(--accent-ink);text-decoration:none;font-weight:600;padding:8px 14px;border-radius:8px}
+  .remove{margin-left:auto;padding:4px 10px}
+  .opts{display:flex;flex-wrap:wrap;gap:14px;align-items:center;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:16px;font-size:.92rem}
+  select{font:inherit;padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+  #load{color:var(--muted);margin-bottom:10px;font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+  <h1>Image + Music Loop Video</h1>
+  <p class="sub">Aik image aur gana lagayein, ×2 / ×3 / ×5 / ×10 chunein, chhoti MP4 file download karein. Sab kuch aap ke browser mein hota hai, kuch upload nahi hota.</p>
+
+  <div class="opts">
+    <label>Quality
+      <select id="q">
+        <option value="abr">Chhoti file (128k audio)</option>
+        <option value="hq">Behtar audio (192k)</option>
+      </select>
+    </label>
+    <label>Video size
+      <select id="size">
+        <option value="1280">720p (1280×720)</option>
+        <option value="1920">1080p (1920×1080)</option>
+        <option value="854">480p (854×480)</option>
+      </select>
+    </label>
+  </div>
+
+  <div class="bar">
+    <button id="add">+ Naya video add karein</button>
+    <button id="add5">+ 5 add karein</button>
+    <button id="go" class="primary">Sab banayein</button>
+    <button id="all" disabled>Sab download karein</button>
+  </div>
+  <div id="load">Engine load ho raha hai...</div>
+  <div id="list"></div>
+</main>
+
+<script>
+const MAX_ROWS = 15;
+const list = document.getElementById('list');
+const loadEl = document.getElementById('load');
+let ffmpeg = null, ready = false, busy = false, current = null;
+const rows = [];
+
+function esc(s){return s.replace(/[^\w.\-]+/g,'_')}
+
+function addRow(){
+  if(rows.length >= MAX_ROWS){ alert('Aik waqt mein zyada se zyada '+MAX_ROWS+' videos.'); return; }
+  const id = 'r'+Date.now()+Math.random().toString(36).slice(2,6);
+  const el = document.createElement('div');
+  el.className='row';
+  el.innerHTML = `
+    <div class="thumb" tabindex="0" role="button" aria-label="Image chunein">Image<br>chunein</div>
+    <div class="fields">
+      <div class="line">
+        <button class="pickAudio">Gana chunein</button>
+        <span class="file">Koi gana nahi</span>
+        <button class="remove" aria-label="Hatayein">✕</button>
+      </div>
+      <div class="line mult" role="radiogroup" aria-label="Kitni dafa chale">
+        ${[1,2,3,5,10].map(n=>`<label><input type="radio" name="${id}" value="${n}" ${n===2?'checked':''}><span>×${n}</span></label>`).join('')}
+      </div>
+      <progress value="0" max="100" hidden></progress>
+      <div class="line"><span class="status">Tayyar</span></div>
+    </div>
+    <input type="file" accept="image/*" hidden class="fi">
+    <input type="file" accept="audio/*,video/mp4" hidden class="fa">`;
+  const r = {id, el, img:null, aud:null, out:null, url:null};
+  const thumb = el.querySelector('.thumb'), fi = el.querySelector('.fi'), fa = el.querySelector('.fa');
+  thumb.onclick = ()=>fi.click();
+  thumb.onkeydown = e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();fi.click();} };
+  el.querySelector('.pickAudio').onclick = ()=>fa.click();
+  fi.onchange = ()=>{ if(fi.files[0]){ r.img=fi.files[0]; thumb.innerHTML=''; const im=new Image(); im.src=URL.createObjectURL(r.img); im.alt=''; thumb.appendChild(im); } };
+  fa.onchange = ()=>{ if(fa.files[0]){ r.aud=fa.files[0]; el.querySelector('.file').textContent=r.aud.name; } };
+  el.querySelector('.remove').onclick = ()=>{ if(busy && current===r) return; rows.splice(rows.indexOf(r),1); if(r.url) URL.revokeObjectURL(r.url); el.remove(); updateAll(); };
+  r.setStatus = (t,err)=>{ const s=el.querySelector('.status'); s.textContent=t; s.className='status'+(err?' err':''); };
+  r.setProg = v=>{ const p=el.querySelector('progress'); p.hidden = v==null; if(v!=null) p.value=v; };
+  r.mult = ()=>+el.querySelector('input[type=radio]:checked').value;
+  rows.push(r); list.appendChild(el);
+}
+
+function updateAll(){ document.getElementById('all').disabled = !rows.some(r=>r.out); }
+
+function loadScript(src){
+  return new Promise((res,rej)=>{
+    const s=document.createElement('script'); s.src=src; s.onload=res;
+    s.onerror=()=>rej(new Error('Script load nahi hui: '+src)); document.head.appendChild(s);
+  });
+}
+
+const CDNS = [
+  { name:'jsDelivr', ff:'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd', ut:'https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/umd', core:'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/umd' },
+  { name:'unpkg',    ff:'https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd',          ut:'https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd',          core:'https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd' }
+];
+
+async function loadWith(c, mode){
+  const { FFmpeg } = window.FFmpegWASM || window.FFmpegWasm;
+  const { toBlobURL } = FFmpegUtil;
+  const coreDir = mode==='esm' ? c.core.replace('/umd','/esm') : c.core;
+  const coreURL = await toBlobURL(`${coreDir}/ffmpeg-core.js`,'text/javascript');
+  const wasmURL = await toBlobURL(`${coreDir}/ffmpeg-core.wasm`,'application/wasm');
+  const f = new FFmpeg();
+  f.on('progress', ({progress})=>{ if(current) current.setProg(Math.max(0,Math.min(100,Math.round(progress*100)))); });
+  try{
+    if(mode==='plain'){
+      await f.load({ coreURL, wasmURL });
+    }else{
+      const workerURL = await toBlobURL(`${c.ff}/814.ffmpeg.js`,'text/javascript');
+      await f.load({ classWorkerURL: workerURL, coreURL, wasmURL });
+    }
+  }catch(e){
+    try{ f.terminate(); }catch(_){}
+    throw e;
+  }
+  return f;
+}
+
+async function initEngine(){
+  const errs = [];
+  for(const c of CDNS){
+    try{
+      loadEl.textContent = 'Engine load ho raha hai ('+c.name+')... pehli dafa 30 MB download hota hai.';
+      if(!window.FFmpegWASM) await loadScript(c.ff+'/ffmpeg.js');
+      if(!window.FFmpegUtil) await loadScript(c.ut+'/index.js');
+    }catch(e){ errs.push(c.name+' script: '+e.message); continue; }
+    for(const mode of ['umd','esm','plain']){
+      try{
+        loadEl.textContent = 'Engine load ho raha hai ('+c.name+', tareeqa '+mode+')...';
+        ffmpeg = await loadWith(c, mode);
+        ready = true; loadEl.style.color=''; loadEl.textContent = 'Engine tayyar hai.';
+        return;
+      }catch(e){
+        console.error(e);
+        errs.push(c.name+'/'+mode+': '+(e && e.message ? e.message : e));
+      }
+    }
+    break; // scripts load ho gayi thi, doosra CDN same masla dega
+  }
+  loadEl.style.color = 'var(--warn)';
+  loadEl.textContent = 'Engine load nahi hua. ' + errs.join(' || ');
+}
+
+async function makeOne(r){
+  const {fetchFile} = FFmpegUtil;
+  const w = +document.getElementById('size').value;
+  const h = Math.round(w*9/16);
+  const abr = document.getElementById('q').value==='hq' ? '192k' : '128k';
+  const n = r.mult();
+  const iname = 'in_'+esc(r.img.name), aname = 'au_'+esc(r.aud.name), oname = 'out.mp4';
+  current = r;
+  r.setStatus('Ban rahi hai...'); r.setProg(0);
+  await ffmpeg.writeFile(iname, await fetchFile(r.img));
+  await ffmpeg.writeFile(aname, await fetchFile(r.aud));
+  // 1 frame/sec still image = bohat chhoti file. Audio n dafa loop.
+  const args = [
+    '-loop','1','-framerate','1','-i',iname,
+    '-stream_loop',String(n-1),'-i',aname,
+    '-vf',`scale=${w}:${h}:force_original_aspect_ratio=decrease,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2:color=black,format=yuv420p`,
+    '-c:v','libx264','-preset','ultrafast','-tune','stillimage','-crf','30','-r','1','-g','30',
+    '-c:a','aac','-b:a',abr,'-ac','2',
+    '-map','0:v:0','-map','1:a:0','-shortest','-movflags','+faststart',oname
+  ];
+  const code = await ffmpeg.exec(args);
+  if(code!==0) throw new Error('ffmpeg error');
+  const data = await ffmpeg.readFile(oname);
+  const blob = new Blob([data.buffer],{type:'video/mp4'});
+  await ffmpeg.deleteFile(iname); await ffmpeg.deleteFile(aname); await ffmpeg.deleteFile(oname);
+  if(r.url) URL.revokeObjectURL(r.url);
+  r.out = blob; r.url = URL.createObjectURL(blob);
+  r.fname = esc((r.aud.name.replace(/\.[^.]+$/,'')||'video'))+`_x${n}.mp4`;
+  const mb = (blob.size/1048576).toFixed(1);
+  const st = r.el.querySelector('.status');
+  st.className='status'; st.textContent = `Tayyar (${mb} MB) `;
+  const a = document.createElement('a'); a.className='dl'; a.href=r.url; a.download=r.fname; a.textContent='Download';
+  st.after(a);
+  r.setProg(null);
+}
+
+async function runAll(){
+  if(busy) return;
+  if(!ready){ alert('Engine abhi load ho raha hai, thora intezar karein.'); return; }
+  busy = true; document.getElementById('go').disabled = true;
+  for(const r of rows.slice()){
+    if(r.out) continue;
+    if(!r.img || !r.aud){ r.setStatus('Image aur gana dono chunein.', true); continue; }
+    try{ await makeOne(r); }
+    catch(e){ console.error(e); r.setStatus('Nakam. Dusri file try karein.', true); r.setProg(null); }
+    updateAll();
+  }
+  current = null; busy = false; document.getElementById('go').disabled = false;
+}
+
+function downloadAll(){
+  const done = rows.filter(r=>r.out);
+  done.forEach((r,i)=>setTimeout(()=>{ const a=document.createElement('a'); a.href=r.url; a.download=r.fname; document.body.appendChild(a); a.click(); a.remove(); }, i*400));
+}
+
+document.getElementById('add').onclick = addRow;
+document.getElementById('add5').onclick = ()=>{ for(let i=0;i<5;i++) addRow(); };
+document.getElementById('go').onclick = runAll;
+document.getElementById('all').onclick = downloadAll;
+addRow();
+initEngine();
+</script>
+</body>
+</html>
